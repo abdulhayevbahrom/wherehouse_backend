@@ -93,7 +93,7 @@ class OmborController {
       // Ombor yozuvini yaratish
       const ombor = await Ombor.create({
         supplier: supplierDoc._id,
-        products,
+        products: products.map((p) => ({ ...p, org_qty: p.quantity })),
         totalPrice,
         paidAmount,
       });

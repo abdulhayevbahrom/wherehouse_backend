@@ -59,6 +59,29 @@ exports.getDashboard = async (req, res) => {
       },
     ]);
 
+    // Jami agentlar qarzi (oy bo‘yicha emas, umumiy)
+    const agentsDebt = await Sale.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalAgentDebt: { $sum: "$remainingDebt" }, // barcha transactionlar qarzini qo‘shish
+        },
+      },
+    ]);
+
+    // Jami ombor summasi
+   const totalStockValue = await Ombor.aggregate([
+     { $unwind: "$products" },
+     {
+       $group: {
+         _id: null,
+         totalValue: {
+           $sum: { $multiply: ["$products.quantity", "$products.price"] },
+         },
+       },
+     },
+   ]);
+
     const kirim = expenses.find((e) => e._id === "kirim")?.total || 0;
     const chiqim = expenses.find((e) => e._id === "chiqim")?.total || 0;
 
@@ -72,8 +95,8 @@ exports.getDashboard = async (req, res) => {
         totalQuantity: sales[0]?.totalQuantity || 0,
       },
       debts: debts[0]?.totalDebt || 0,
-      // incomes: incomes[0]?.total || 0,
-      // debts: debts[0]?.total || 0,
+      agentsDebt: agentsDebt[0]?.totalAgentDebt || 0,
+      totalStockValue: totalStockValue[0]?.totalValue || 0,
     };
 
     response.success(res, "Ma'lumotlar muvaffaqiyatli olindi", datas);

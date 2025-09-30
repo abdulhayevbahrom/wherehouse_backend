@@ -13,6 +13,11 @@ const transactionSchema = new mongoose.Schema({
         ref: "Ombor", // Ombor modeliga bog'lanadi
         required: true,
       },
+      // sale price bu
+      price: {
+        type: Number,
+        required: true,
+      },
       quantity: {
         type: Number,
         required: true,

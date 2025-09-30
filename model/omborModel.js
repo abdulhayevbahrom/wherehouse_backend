@@ -13,6 +13,7 @@ const omborSchema = new Schema(
         quantity: Number,
         price: Number,
         total: Number, // quantity * price
+        org_qty: Number,
       },
     ],
     totalPrice: {

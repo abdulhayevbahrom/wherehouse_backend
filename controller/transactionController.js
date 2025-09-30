@@ -8,66 +8,36 @@ exports.giveProductsToAgent = async (req, res) => {
   try {
     const { agentId, products, paidAmount } = req.body;
 
-    // Agentni topish
-    const agent = await Agent.findById(agentId);
-    if (!agent) return response.notFound(res, "Agent topilmadi");
-
-    let totalTransactionPrice = 0;
-    const productDetails = [];
-
     for (const item of products) {
       const { productId, quantity, salePrice } = item; // salePrice ham keladi!
 
       // Ombor ichidagi mahsulotni topish
       const ombor = await Ombor.findOne({ "products._id": productId });
-      if (!ombor) return response.notFound(res, "Mahsulot topilmadi");
 
       const productIndex = ombor.products.findIndex(
         (p) => p._id.toString() === productId
       );
       const product = ombor.products[productIndex];
-      if (!product) return response.notFound(res, "Mahsulot topilmadi");
 
-      // Yetarli mahsulot borligini tekshirish
-      if (product.quantity < quantity) {
-        return response.error(res, "Omborda yetarli mahsulot mavjud emas");
-      }
-
-      // 💡 Foyda logikasi:
-      // Ombor narxi: product.price
-      // Sotuv narxi: salePrice (agentga beriladigan narx)
-      const totalPrice = salePrice * quantity;
-      const profit = (salePrice - product.price) * quantity;
-
-      totalTransactionPrice += totalPrice;
-
-      // Ombordagi miqdorni kamaytirish
       product.quantity -= quantity;
       ombor.products[productIndex] = product;
       await ombor.save();
-
-      productDetails.push({
-        product: productId,
-        quantity,
-        unitPrice: product.price, // kirim narxi
-        salePrice, // sotuv narxi
-        totalPrice,
-        profit, // foyda
-      });
     }
 
-    // Qarzni hisoblash
-    const remainingDebt = totalTransactionPrice - paidAmount;
-
-    // Transaction yaratish
-    const transaction = new Transaction({
+    let result = await Transaction.create({
       agent: agentId,
-      products: productDetails,
-      totalPrice: totalTransactionPrice,
-      paidAmount,
-      remainingDebt,
+      products: products.map((p) => ({
+        product: p.productId,
+        price: p.salePrice,
+        quantity: p.quantity,
+        totalPrice: p.salePrice * p.quantity,
+      })),
+      paidAmount: paidAmount,
+      remainingDebt:
+        products.reduce((acc, p) => acc + p.salePrice * p.quantity, 0) -
+        paidAmount,
     });
-    await transaction.save();
+    const transaction = await Transaction.findById(result.id).populate("agent");
 
     return response.created(res, "Mahsulotlar agentga berildi", transaction);
   } catch (error) {
@@ -115,9 +85,66 @@ exports.payDebt = async (req, res) => {
 
 exports.getAllTransactions = async (req, res) => {
   try {
-    const transactions = await Transaction.find().populate("agent");
-    if (!transactions.length)
+    const transactions = await Transaction.aggregate([
+      // Agentni qo‘shish
+      {
+        $lookup: {
+          from: "agents",
+          localField: "agent",
+          foreignField: "_id",
+          as: "agent",
+        },
+      },
+      { $unwind: "$agent" },
+      {
+        $lookup: {
+          from: "ombors",
+          localField: "products.product", // Transaction.products.product
+          foreignField: "products._id", // Ombor ichidagi products._id
+          as: "omborDocs",
+        },
+      },
+      {
+        $unwind: { path: "$products", preserveNullAndEmptyArrays: true },
+      },
+      {
+        $addFields: {
+          "products.title": {
+            $arrayElemAt: [
+              {
+                $map: {
+                  input: {
+                    $filter: {
+                      input: { $arrayElemAt: ["$omborDocs.products", 0] },
+                      as: "p",
+                      cond: { $eq: ["$$p._id", "$products.product"] },
+                    },
+                  },
+                  as: "pp",
+                  in: "$$pp.title",
+                },
+              },
+              0,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id",
+          agent: { $first: "$agent" },
+          paidAmount: { $first: "$paidAmount" },
+          remainingDebt: { $first: "$remainingDebt" },
+          date: { $first: "$date" },
+          products: { $push: "$products" },
+        },
+      },
+    ]);
+
+    if (!transactions.length) {
       return response.notFound(res, "Transactionlar topilmadi");
+    }
+
     return response.success(res, "Transactionlar ro'yxati", transactions);
   } catch (error) {
     return response.serverError(res, "Server xatosi", error.message);

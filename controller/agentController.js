@@ -3,6 +3,7 @@ const responses = require("../utils/response");
 const jwt = require("jsonwebtoken");
 const Transactions = require("../model/transactionModel");
 const mongoose = require("mongoose");
+const moment = require("moment-timezone");
 
 class AgentController {
   async getAllAgents(req, res) {
@@ -89,13 +90,54 @@ class AgentController {
     }
   }
 
-  // get by id
   // async getAgentData(req, res) {
   //   try {
   //     let { id } = req.params;
 
-  //     const agentData = await Transactions.find({ agent: id }).populate([
-  //       "products.product",
+  //     const agentData = await Transactions.aggregate([
+  //       { $match: { agent: new mongoose.Types.ObjectId(id) } },
+  //       { $unwind: "$products" },
+  //       {
+  //         $lookup: {
+  //           from: "ombors",
+  //           localField: "products.product", // Transaction.products.product
+  //           foreignField: "products._id", // Ombor.products._id
+  //           as: "omborDoc",
+  //         },
+  //       },
+  //       { $unwind: { path: "$omborDoc", preserveNullAndEmptyArrays: true } },
+  //       {
+  //         $addFields: {
+  //           "products.title": {
+  //             $arrayElemAt: [
+  //               {
+  //                 $map: {
+  //                   input: {
+  //                     $filter: {
+  //                       input: "$omborDoc.products",
+  //                       as: "p",
+  //                       cond: { $eq: ["$$p._id", "$products.product"] },
+  //                     },
+  //                   },
+  //                   as: "pp",
+  //                   in: "$$pp.title",
+  //                 },
+  //               },
+  //               0,
+  //             ],
+  //           },
+  //         },
+  //       },
+  //       {
+  //         $group: {
+  //           _id: "$_id",
+  //           agent: { $first: "$agent" },
+  //           paidAmount: { $first: "$paidAmount" },
+  //           remainingDebt: { $first: "$remainingDebt" },
+  //           date: { $first: "$date" },
+  //           products: { $push: "$products" },
+  //         },
+  //       },
   //     ]);
 
   //     return responses.success(res, "Agent ma'lumotlari", agentData);
@@ -104,65 +146,57 @@ class AgentController {
   //   }
   // }
 
-  // get by id
   async getAgentData(req, res) {
     try {
       let { id } = req.params;
+      let { date } = req.query;
+
+      let matchStage = { agent: new mongoose.Types.ObjectId(id) };
+
+      if (date) {
+        // format: YYYY-MM-DD
+        const start = moment
+          .tz(date, "DD-MM-YYYY", "Asia/Tashkent")
+          .startOf("day")
+          .toDate();
+        const end = moment
+          .tz(date, "DD-MM-YYYY", "Asia/Tashkent")
+          .endOf("day")
+          .toDate();
+        matchStage.date = { $gte: start, $lte: end };
+      }
 
       const agentData = await Transactions.aggregate([
-        { $match: { agent: new mongoose.Types.ObjectId(id) } },
+        { $match: matchStage },
         { $unwind: "$products" },
         {
           $lookup: {
             from: "ombors",
-            localField: "products.product", // Transaction.products.product
-            foreignField: "products._id", // Ombor.products._id
+            localField: "products.product",
+            foreignField: "products._id",
             as: "omborDoc",
           },
         },
         { $unwind: { path: "$omborDoc", preserveNullAndEmptyArrays: true } },
         {
           $addFields: {
-            products: {
-              product: "$products.product",
-              quantity: "$products.quantity",
-              totalPrice: "$products.totalPrice",
-              title: {
-                $arrayElemAt: [
-                  {
-                    $map: {
-                      input: {
-                        $filter: {
-                          input: "$omborDoc.products",
-                          as: "p",
-                          cond: { $eq: ["$$p._id", "$products.product"] },
-                        },
+            "products.title": {
+              $arrayElemAt: [
+                {
+                  $map: {
+                    input: {
+                      $filter: {
+                        input: "$omborDoc.products",
+                        as: "p",
+                        cond: { $eq: ["$$p._id", "$products.product"] },
                       },
-                      as: "pp",
-                      in: "$$pp.title",
                     },
+                    as: "pp",
+                    in: "$$pp.title",
                   },
-                  0,
-                ],
-              },
-              price: {
-                $arrayElemAt: [
-                  {
-                    $map: {
-                      input: {
-                        $filter: {
-                          input: "$omborDoc.products",
-                          as: "p",
-                          cond: { $eq: ["$$p._id", "$products.product"] },
-                        },
-                      },
-                      as: "pp",
-                      in: "$$pp.price",
-                    },
-                  },
-                  0,
-                ],
-              },
+                },
+                0,
+              ],
             },
           },
         },
