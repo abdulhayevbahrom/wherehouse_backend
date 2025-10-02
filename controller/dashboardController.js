@@ -108,6 +108,8 @@ exports.getDashboard = async (req, res) => {
     let agetsTotalDebt = agentsInitialDebts[0]?.total || 0;
     let supplierTotalDebt = suppliersInitialDebts[0]?.total || 0;
 
+    console.log(agetsTotalDebt);
+
     let datas = {
       expenses: {
         kirim,
@@ -118,7 +120,7 @@ exports.getDashboard = async (req, res) => {
         totalQuantity: sales[0]?.totalQuantity || 0,
       },
       debts: supplierTotalDebt + debts[0]?.totalDebt || 0,
-      agentsDebt: agentsDebt?.[0]?.totalAgentDebt || 0 + agetsTotalDebt,
+      agentsDebt: agetsTotalDebt + agentsDebt[0]?.totalAgentDebt || 0,
       totalStockValue: totalStockValue[0]?.totalValue || 0,
     };
 
