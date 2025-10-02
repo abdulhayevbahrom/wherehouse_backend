@@ -15,6 +15,12 @@ const supplierSchema = new Schema(
       type: Number,
       default: 0,
     },
+    payments: [
+      {
+        amount: Number,
+        date: Date,
+      },
+    ],
   },
   { timestamps: true }
 );

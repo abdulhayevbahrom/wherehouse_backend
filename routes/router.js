@@ -61,5 +61,7 @@ router.get("/debtors", transactionController.getDebtors);
 router.get("/supplier/all", SupplierController.getAll);
 router.get("/supplier/suppliers", SupplierController.getSuppliers);
 router.put("/supplier/update/:id", SupplierController.updateSupplier);
+router.get("/supplier/debt", SupplierController.getSuppliersDebts);
+router.post("/supplier/pay", SupplierController.payToSupplier);
 
 module.exports = router;
