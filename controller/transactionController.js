@@ -150,3 +150,193 @@ exports.getAllTransactions = async (req, res) => {
     return response.serverError(res, "Server xatosi", error.message);
   }
 };
+
+// exports.getDebtors = async (req, res) => {
+//   try {
+//     const debtors = await Transaction.aggregate([
+//       {
+//         $lookup: {
+//           from: "agents",
+//           localField: "agent",
+//           foreignField: "_id",
+//           as: "agent",
+//         },
+//       },
+//       { $unwind: "$agent" },
+
+//       // productsni ajratib olish
+//       { $unwind: "$products" },
+
+//       // mahsulotni olish uchun ombor bilan join
+//       {
+//         $lookup: {
+//           from: "ombors",
+//           localField: "products.product",
+//           foreignField: "products._id",
+//           as: "omborDocs",
+//         },
+//       },
+
+//       // title qo‘shish
+//       {
+//         $addFields: {
+//           "products.title": {
+//             $arrayElemAt: [
+//               {
+//                 $map: {
+//                   input: {
+//                     $filter: {
+//                       input: { $arrayElemAt: ["$omborDocs.products", 0] },
+//                       as: "p",
+//                       cond: { $eq: ["$$p._id", "$products.product"] },
+//                     },
+//                   },
+//                   as: "pp",
+//                   in: "$$pp.title",
+//                 },
+//               },
+//               0,
+//             ],
+//           },
+//         },
+//       },
+
+//       // mahsulotlarni qaytadan yig‘ish
+//       {
+//         $group: {
+//           _id: "$_id",
+//           agent: { $first: "$agent" },
+//           paidAmount: { $first: "$paidAmount" },
+//           remainingDebt: { $first: "$remainingDebt" },
+//           date: { $first: "$date" },
+//           products: { $push: "$products" },
+//         },
+//       },
+
+//       // faqat qarzdorlarni chiqarish
+//       {
+//         $match: {
+//           $or: [
+//             { "agent.initialDebt": { $gt: 0 } },
+//             { remainingDebt: { $gt: 0 } },
+//           ],
+//         },
+//       },
+//     ]);
+
+//     if (!debtors.length) {
+//       return response.notFound(res, "Qarzdorlar topilmadi");
+//     }
+
+//     return response.success(res, "Qarzdorlar ro‘yxati", debtors);
+//   } catch (error) {
+//     return response.serverError(res, "Server xatosi", error.message);
+//   }
+// };
+
+exports.getDebtors = async (req, res) => {
+  try {
+    const debtors = await Agent.aggregate([
+      // Transactionlarni qo‘shamiz
+      {
+        $lookup: {
+          from: "transactions",
+          localField: "_id",
+          foreignField: "agent",
+          as: "transactions",
+        },
+      },
+
+      // umumiy remainingDebt hisoblash
+      {
+        $addFields: {
+          totalRemainingDebt: {
+            $sum: "$transactions.remainingDebt",
+          },
+        },
+      },
+
+      // umumiy qarz = initialDebt + transaction qarzlari
+      {
+        $addFields: {
+          totalDebt: {
+            $add: ["$initialDebt", "$totalRemainingDebt"],
+          },
+        },
+      },
+
+      // faqat qarzdorlarni olish
+      {
+        $match: {
+          totalDebt: { $gt: 0 },
+        },
+      },
+
+      // transactionlarni ochib mahsulotlar bilan join qilish
+      {
+        $unwind: {
+          path: "$transactions",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $unwind: {
+          path: "$transactions.products",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $lookup: {
+          from: "ombors",
+          localField: "transactions.products.product",
+          foreignField: "products._id",
+          as: "omborDocs",
+        },
+      },
+      {
+        $addFields: {
+          "transactions.products.title": {
+            $arrayElemAt: [
+              {
+                $map: {
+                  input: {
+                    $filter: {
+                      input: { $arrayElemAt: ["$omborDocs.products", 0] },
+                      as: "p",
+                      cond: {
+                        $eq: ["$$p._id", "$transactions.products.product"],
+                      },
+                    },
+                  },
+                  as: "pp",
+                  in: "$$pp.title",
+                },
+              },
+              0,
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$_id",
+          fullname: { $first: "$fullname" },
+          phone: { $first: "$phone" },
+          login: { $first: "$login" },
+          initialDebt: { $first: "$initialDebt" },
+          totalRemainingDebt: { $first: "$totalRemainingDebt" },
+          totalDebt: { $first: "$totalDebt" },
+          transactions: { $push: "$transactions" },
+        },
+      },
+    ]);
+
+    if (!debtors.length) {
+      return response.notFound(res, "Qarzdorlar topilmadi");
+    }
+
+    return response.success(res, "Qarzdorlar ro‘yxati", debtors);
+  } catch (error) {
+    return response.serverError(res, "Server xatosi", error.message);
+  }
+};

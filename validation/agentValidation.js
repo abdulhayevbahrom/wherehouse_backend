@@ -2,6 +2,7 @@ const Ajv = require("ajv");
 const addFormats = require("ajv-formats");
 const addErrors = require("ajv-errors");
 const response = require("../utils/response");
+const { init } = require("../model/agentModel");
 
 const agentValidation = (req, res, next) => {
   const ajv = new Ajv({ allErrors: true, verbose: true });
@@ -35,6 +36,10 @@ const agentValidation = (req, res, next) => {
         minLength: 6,
         maxLength: 50,
         errorMessage: "Parol 6-50 ta belgi oralig‘ida bo‘lishi kerak",
+      },
+      initialDebt: {
+        type: "number",
+        minimum: 0,
       },
     },
     required: ["fullname", "phone", "login", "password"],

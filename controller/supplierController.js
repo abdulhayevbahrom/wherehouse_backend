@@ -28,6 +28,20 @@ class SupplierController {
       return response.serverError(res, error.message, error);
     }
   }
+
+  // update
+  async updateSupplier(req, res) {
+    try {
+      const { id } = req.params;
+      const updated = await Suppliers.findByIdAndUpdate(id, req.body, {
+        new: true,
+      });
+      if (!updated) return response.notFound(res, "Supplier topilmadi");
+      return response.success(res, "Supplier yangilandi", updated);
+    } catch (error) {
+      return response.serverError(res, "Server xatosi", error.message);
+    }
+  }
 }
 
 module.exports = new SupplierController();

@@ -21,6 +21,11 @@ const agentSchema = new Schema({
     type: Boolean,
     default: true,
   },
+  initialDebt: {
+    // <--- dasturdan avvalgi qarz
+    type: Number,
+    default: 0,
+  },
 });
 
 module.exports = model("agents", agentSchema);

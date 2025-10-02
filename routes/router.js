@@ -55,10 +55,11 @@ router.get("/agent/myData/:id", agentMiddleware, AgentController.getAgentData);
 router.post("/transaction/give", transactionController.giveProductsToAgent);
 router.post("/transaction/pay", transactionController.payDebt);
 router.get("/transaction/all", transactionController.getAllTransactions);
-
+router.get("/debtors", transactionController.getDebtors);
 // SUPPLIERS
 
 router.get("/supplier/all", SupplierController.getAll);
 router.get("/supplier/suppliers", SupplierController.getSuppliers);
+router.put("/supplier/update/:id", SupplierController.updateSupplier);
 
 module.exports = router;

@@ -3,6 +3,8 @@ const Expense = require("../model/expenseModel");
 const Sale = require("../model/transactionModel");
 const Ombor = require("../model/omborModel");
 const response = require("../utils/response");
+const Supplier = require("../model/supplierModel");
+const Agents = require("../model/agentModel");
 
 exports.getDashboard = async (req, res) => {
   try {
@@ -70,20 +72,41 @@ exports.getDashboard = async (req, res) => {
     ]);
 
     // Jami ombor summasi
-   const totalStockValue = await Ombor.aggregate([
-     { $unwind: "$products" },
-     {
-       $group: {
-         _id: null,
-         totalValue: {
-           $sum: { $multiply: ["$products.quantity", "$products.price"] },
-         },
-       },
-     },
-   ]);
+    const totalStockValue = await Ombor.aggregate([
+      { $unwind: "$products" },
+      {
+        $group: {
+          _id: null,
+          totalValue: {
+            $sum: { $multiply: ["$products.quantity", "$products.price"] },
+          },
+        },
+      },
+    ]);
+
+    const agentsInitialDebts = await Agents.aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$initialDebt" }, // barcha transactionlar qarzini qo‘shish
+        },
+      },
+    ]);
+
+    const suppliersInitialDebts = await Supplier.aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$initialDebt" }, // barcha transactionlar qarzini qo‘shish
+        },
+      },
+    ]);
 
     const kirim = expenses.find((e) => e._id === "kirim")?.total || 0;
     const chiqim = expenses.find((e) => e._id === "chiqim")?.total || 0;
+
+    let agetsTotalDebt = agentsInitialDebts[0]?.total || 0;
+    let supplierTotalDebt = suppliersInitialDebts[0]?.total || 0;
 
     let datas = {
       expenses: {
@@ -94,8 +117,8 @@ exports.getDashboard = async (req, res) => {
         totalSales: sales[0]?.totalSales || 0,
         totalQuantity: sales[0]?.totalQuantity || 0,
       },
-      debts: debts[0]?.totalDebt || 0,
-      agentsDebt: agentsDebt[0]?.totalAgentDebt || 0,
+      debts: supplierTotalDebt + debts[0]?.totalDebt || 0,
+      agentsDebt: agentsDebt?.[0]?.totalAgentDebt || 0 + agetsTotalDebt,
       totalStockValue: totalStockValue[0]?.totalValue || 0,
     };
 

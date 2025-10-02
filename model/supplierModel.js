@@ -10,6 +10,11 @@ const supplierSchema = new Schema(
       type: Number,
       default: 0,
     },
+    initialDebt: {
+      // <--- dasturdan avvalgi qarz
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );
