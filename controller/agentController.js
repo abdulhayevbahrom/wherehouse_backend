@@ -93,15 +93,34 @@ class AgentController {
   // async getAgentData(req, res) {
   //   try {
   //     let { id } = req.params;
+  //     let { date } = req.query;
+
+  //     let agent = await Agent.findById(id);
+  //     if (!agent) return responses.notFound(res, "Agent topilmadi");
+
+  //     let matchStage = { agent: new mongoose.Types.ObjectId(id) };
+
+  //     if (date) {
+  //       // format: YYYY-MM-DD
+  //       const start = moment
+  //         .tz(date, "DD-MM-YYYY", "Asia/Tashkent")
+  //         .startOf("day")
+  //         .toDate();
+  //       const end = moment
+  //         .tz(date, "DD-MM-YYYY", "Asia/Tashkent")
+  //         .endOf("day")
+  //         .toDate();
+  //       matchStage.date = { $gte: start, $lte: end };
+  //     }
 
   //     const agentData = await Transactions.aggregate([
-  //       { $match: { agent: new mongoose.Types.ObjectId(id) } },
+  //       { $match: matchStage },
   //       { $unwind: "$products" },
   //       {
   //         $lookup: {
   //           from: "ombors",
-  //           localField: "products.product", // Transaction.products.product
-  //           foreignField: "products._id", // Ombor.products._id
+  //           localField: "products.product",
+  //           foreignField: "products._id",
   //           as: "omborDoc",
   //         },
   //       },
@@ -145,16 +164,18 @@ class AgentController {
   //     responses.serverError(res, "Server xatosi", err.message);
   //   }
   // }
-
   async getAgentData(req, res) {
     try {
       let { id } = req.params;
       let { date } = req.query;
 
+      let agent = await Agent.findById(id);
+      if (!agent) return responses.notFound(res, "Agent topilmadi");
+
       let matchStage = { agent: new mongoose.Types.ObjectId(id) };
 
       if (date) {
-        // format: YYYY-MM-DD
+        // format: DD-MM-YYYY
         const start = moment
           .tz(date, "DD-MM-YYYY", "Asia/Tashkent")
           .startOf("day")
@@ -212,7 +233,20 @@ class AgentController {
         },
       ]);
 
-      return responses.success(res, "Agent ma'lumotlari", agentData);
+      // ✅ Agent umumiy qarzini hisoblash
+      const totalRemainingDebt = agentData.reduce(
+        (sum, tr) => sum + (tr.remainingDebt || 0),
+        0
+      );
+
+      const totalDebt = agent.initialDebt + totalRemainingDebt;
+
+      return responses.success(res, "Agent ma'lumotlari", {
+        agent,
+        sales: agentData,
+        totalRemainingDebt,
+        totalDebt, // initialDebt + remainingDebt
+      });
     } catch (err) {
       responses.serverError(res, "Server xatosi", err.message);
     }

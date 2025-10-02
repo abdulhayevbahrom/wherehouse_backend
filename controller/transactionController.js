@@ -2,29 +2,95 @@ const Transaction = require("../model/transactionModel");
 const Ombor = require("../model/omborModel");
 const Agent = require("../model/agentModel");
 const response = require("../utils/response");
+const mongoose = require("mongoose");
 
 // Bir nechta mahsulotni agentga berish
+// exports.giveProductsToAgent = async (req, res) => {
+//   try {
+//     const { agentId, products, paidAmount } = req.body;
+
+//     for (const item of products) {
+//       const { productId, quantity, salePrice } = item; // salePrice ham keladi!
+
+//       // Ombor ichidagi mahsulotni topish
+//       const ombor = await Ombor.findOne({ "products._id": productId });
+
+//       const productIndex = ombor.products.findIndex(
+//         (p) => p._id.toString() === productId
+//       );
+//       const product = ombor.products[productIndex];
+
+//       product.quantity -= quantity;
+//       ombor.products[productIndex] = product;
+//       await ombor.save();
+//     }
+
+//     let result = await Transaction.create({
+//       agent: agentId,
+//       products: products.map((p) => ({
+//         product: p.productId,
+//         price: p.salePrice,
+//         quantity: p.quantity,
+//         totalPrice: p.salePrice * p.quantity,
+//       })),
+//       paidAmount: paidAmount,
+//       remainingDebt:
+//         products.reduce((acc, p) => acc + p.salePrice * p.quantity, 0) -
+//         paidAmount,
+//     });
+//     const transaction = await Transaction.findById(result.id).populate("agent");
+
+//     return response.created(res, "Mahsulotlar agentga berildi", transaction);
+//   } catch (error) {
+//     return response.serverError(res, "Server xatosi", error.message);
+//   }
+// };
+
 exports.giveProductsToAgent = async (req, res) => {
   try {
     const { agentId, products, paidAmount } = req.body;
 
-    for (const item of products) {
-      const { productId, quantity, salePrice } = item; // salePrice ham keladi!
+    if (!agentId || !products || !products.length) {
+      return res.status(400).json({ error: "Ma'lumotlar yetarli emas" });
+    }
 
-      // Ombor ichidagi mahsulotni topish
+    const agent = await Agent.findById(agentId);
+    if (!agent) return response.notFound(res, "Agent topilmadi");
+
+    let totalProductsPrice = 0;
+
+    for (const item of products) {
+      const { productId, quantity, salePrice } = item;
+
       const ombor = await Ombor.findOne({ "products._id": productId });
+      if (!ombor) return response.notFound(res, "Omborda mahsulot topilmadi");
 
       const productIndex = ombor.products.findIndex(
         (p) => p._id.toString() === productId
       );
+
+      if (productIndex === -1)
+        return response.notFound(res, "Mahsulot topilmadi");
+
       const product = ombor.products[productIndex];
+
+      if (product.quantity < quantity) {
+        return res
+          .status(400)
+          .json({ error: `${product.title} uchun yetarli miqdor yo‘q` });
+      }
 
       product.quantity -= quantity;
       ombor.products[productIndex] = product;
       await ombor.save();
+
+      totalProductsPrice += salePrice * quantity;
     }
 
-    let result = await Transaction.create({
+    const remainingDebt = totalProductsPrice - paidAmount;
+
+    // 🔥 Faqat transactionda qarz yoziladi
+    const transaction = await Transaction.create({
       agent: agentId,
       products: products.map((p) => ({
         product: p.productId,
@@ -32,14 +98,19 @@ exports.giveProductsToAgent = async (req, res) => {
         quantity: p.quantity,
         totalPrice: p.salePrice * p.quantity,
       })),
-      paidAmount: paidAmount,
-      remainingDebt:
-        products.reduce((acc, p) => acc + p.salePrice * p.quantity, 0) -
-        paidAmount,
+      paidAmount,
+      remainingDebt,
     });
-    const transaction = await Transaction.findById(result.id).populate("agent");
 
-    return response.created(res, "Mahsulotlar agentga berildi", transaction);
+    const populatedTransaction = await Transaction.findById(transaction._id)
+      .populate("agent")
+      .populate("products.product");
+
+    return response.created(
+      res,
+      "Mahsulotlar agentga berildi",
+      populatedTransaction
+    );
   } catch (error) {
     return response.serverError(res, "Server xatosi", error.message);
   }
@@ -48,38 +119,65 @@ exports.giveProductsToAgent = async (req, res) => {
 // Agentning qarzini to'lash
 exports.payDebt = async (req, res) => {
   try {
-    const { transactionId, paymentAmount } = req.body;
+    const { agentId, amount } = req.body;
 
-    // Transactionni topish
-    const transaction = await Transaction.findById(transactionId);
-    if (!transaction) return response.notFound(res, "Transaction topilmadi");
-
-    // Agar qarz allaqachon yopilgan bo'lsa
-    if (transaction.remainingDebt <= 0) {
-      return response.error(
-        res,
-        "Bu transaction bo'yicha qarz allaqachon yopilgan"
-      );
+    if (!agentId || !amount || amount <= 0) {
+      return res.status(400).json({ error: "To'lov summasi noto'g'ri" });
     }
 
-    // To'lovni hisoblash
-    transaction.paidAmount += paymentAmount;
-    transaction.remainingDebt -= paymentAmount;
+    // Agentni topamiz
+    const agent = await Agent.findById(agentId);
+    if (!agent) return res.status(404).json({ error: "Agent topilmadi" });
 
-    // Agar to'lov qarzdan ko'p kiritilsa, qarzni 0 qilib qo'yamiz
-    if (transaction.remainingDebt < 0) {
-      transaction.remainingDebt = 0;
+    let remainingPayment = amount;
+
+    // Avval agentning initialDebt ni kamaytiramiz
+    if (agent.initialDebt > 0) {
+      if (remainingPayment >= agent.initialDebt) {
+        remainingPayment -= agent.initialDebt;
+        agent.initialDebt = 0;
+      } else {
+        agent.initialDebt -= remainingPayment;
+        remainingPayment = 0;
+      }
     }
 
-    await transaction.save();
+    // Transaction qarzlarini yopish (agar initialDebt tugagan bo‘lsa)
+    if (remainingPayment > 0) {
+      const transactions = await Transaction.find({
+        agent: agentId,
+        remainingDebt: { $gt: 0 },
+      }).sort({ date: 1 });
 
-    return response.success(
-      res,
-      "To'lov muvaffaqiyatli amalga oshirildi",
-      transaction
-    );
-  } catch (error) {
-    return response.serverError(res, "Server xatosi", error.message);
+      for (let trx of transactions) {
+        if (remainingPayment <= 0) break;
+
+        if (remainingPayment >= trx.remainingDebt) {
+          remainingPayment -= trx.remainingDebt;
+          trx.paidAmount += trx.remainingDebt;
+          trx.remainingDebt = 0;
+        } else {
+          trx.remainingDebt -= remainingPayment;
+          trx.paidAmount += remainingPayment;
+          remainingPayment = 0;
+        }
+        await trx.save();
+      }
+    }
+
+    await agent.save();
+
+    return res.json({
+      message: "To'lov muvaffaqiyatli amalga oshirildi",
+      payment: amount,
+      usedForDebt: amount - remainingPayment,
+      remainingPayment,
+      currentDebt: agent.initialDebt,
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ error: "Server xatosi", details: err.message });
   }
 };
 
@@ -153,34 +251,66 @@ exports.getAllTransactions = async (req, res) => {
 
 // exports.getDebtors = async (req, res) => {
 //   try {
-//     const debtors = await Transaction.aggregate([
+//     const debtors = await Agent.aggregate([
+//       // Transactionlarni qo‘shamiz
 //       {
 //         $lookup: {
-//           from: "agents",
-//           localField: "agent",
-//           foreignField: "_id",
-//           as: "agent",
+//           from: "transactions",
+//           localField: "_id",
+//           foreignField: "agent",
+//           as: "transactions",
 //         },
 //       },
-//       { $unwind: "$agent" },
 
-//       // productsni ajratib olish
-//       { $unwind: "$products" },
+//       // umumiy remainingDebt hisoblash
+//       {
+//         $addFields: {
+//           totalRemainingDebt: {
+//             $sum: "$transactions.remainingDebt",
+//           },
+//         },
+//       },
 
-//       // mahsulotni olish uchun ombor bilan join
+//       // umumiy qarz = initialDebt + transaction qarzlari
+//       {
+//         $addFields: {
+//           totalDebt: {
+//             $add: ["$initialDebt", "$totalRemainingDebt"],
+//           },
+//         },
+//       },
+
+//       // faqat qarzdorlarni olish
+//       {
+//         $match: {
+//           totalDebt: { $gt: 0 },
+//         },
+//       },
+
+//       // transactionlarni ochib mahsulotlar bilan join qilish
+//       {
+//         $unwind: {
+//           path: "$transactions",
+//           preserveNullAndEmptyArrays: true,
+//         },
+//       },
+//       {
+//         $unwind: {
+//           path: "$transactions.products",
+//           preserveNullAndEmptyArrays: true,
+//         },
+//       },
 //       {
 //         $lookup: {
 //           from: "ombors",
-//           localField: "products.product",
+//           localField: "transactions.products.product",
 //           foreignField: "products._id",
 //           as: "omborDocs",
 //         },
 //       },
-
-//       // title qo‘shish
 //       {
 //         $addFields: {
-//           "products.title": {
+//           "transactions.products.title": {
 //             $arrayElemAt: [
 //               {
 //                 $map: {
@@ -188,7 +318,9 @@ exports.getAllTransactions = async (req, res) => {
 //                     $filter: {
 //                       input: { $arrayElemAt: ["$omborDocs.products", 0] },
 //                       as: "p",
-//                       cond: { $eq: ["$$p._id", "$products.product"] },
+//                       cond: {
+//                         $eq: ["$$p._id", "$transactions.products.product"],
+//                       },
 //                     },
 //                   },
 //                   as: "pp",
@@ -200,26 +332,16 @@ exports.getAllTransactions = async (req, res) => {
 //           },
 //         },
 //       },
-
-//       // mahsulotlarni qaytadan yig‘ish
 //       {
 //         $group: {
 //           _id: "$_id",
-//           agent: { $first: "$agent" },
-//           paidAmount: { $first: "$paidAmount" },
-//           remainingDebt: { $first: "$remainingDebt" },
-//           date: { $first: "$date" },
-//           products: { $push: "$products" },
-//         },
-//       },
-
-//       // faqat qarzdorlarni chiqarish
-//       {
-//         $match: {
-//           $or: [
-//             { "agent.initialDebt": { $gt: 0 } },
-//             { remainingDebt: { $gt: 0 } },
-//           ],
+//           fullname: { $first: "$fullname" },
+//           phone: { $first: "$phone" },
+//           login: { $first: "$login" },
+//           initialDebt: { $first: "$initialDebt" },
+//           totalRemainingDebt: { $first: "$totalRemainingDebt" },
+//           totalDebt: { $first: "$totalDebt" },
+//           transactions: { $push: "$transactions" },
 //         },
 //       },
 //     ]);
@@ -236,106 +358,90 @@ exports.getAllTransactions = async (req, res) => {
 
 exports.getDebtors = async (req, res) => {
   try {
-    const debtors = await Agent.aggregate([
-      // Transactionlarni qo‘shamiz
-      {
-        $lookup: {
-          from: "transactions",
-          localField: "_id",
-          foreignField: "agent",
-          as: "transactions",
-        },
-      },
+    // 1. Barcha agentlarni olish
+    const agents = await Agent.find().lean();
 
-      // umumiy remainingDebt hisoblash
-      {
-        $addFields: {
-          totalRemainingDebt: {
-            $sum: "$transactions.remainingDebt",
-          },
-        },
-      },
+    const results = [];
 
-      // umumiy qarz = initialDebt + transaction qarzlari
-      {
-        $addFields: {
-          totalDebt: {
-            $add: ["$initialDebt", "$totalRemainingDebt"],
-          },
-        },
-      },
+    for (let agent of agents) {
+      // Agentning barcha transactionlari
+      const transactions = await Transaction.find({ agent: agent._id }).lean();
 
-      // faqat qarzdorlarni olish
-      {
-        $match: {
-          totalDebt: { $gt: 0 },
-        },
-      },
+      // Jami mahsulot puli
+      const totalProductsPrice = transactions.reduce(
+        (sum, t) =>
+          sum + (t.products?.reduce((s, p) => s + (p.totalPrice || 0), 0) || 0),
+        0
+      );
 
-      // transactionlarni ochib mahsulotlar bilan join qilish
+      // Jami to‘lovlar
+      const totalPayments = transactions.reduce(
+        (sum, t) => sum + (t.paidAmount || 0),
+        0
+      );
+
+      // Hozirgi qarz = initialDebt + (mahsulot narxi - to‘lov)
+      const debt = agent.initialDebt + totalProductsPrice - totalPayments;
+
+      if (debt > 0) {
+        results.push({
+          agentId: agent._id,
+          fullname: agent.fullname,
+          phone: agent.phone,
+          totalProductsPrice,
+          totalPayments,
+          debt,
+        });
+      }
+    }
+
+    return response.success(res, "Qarzdor agentlar ro‘yxati", results);
+  } catch (error) {
+    return response.serverError(res, "Server xatosi", error.message);
+  }
+};
+
+// get agent debts
+exports.getAgentDebts = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+
+    const transactions = await Transaction.aggregate([
+      { $match: { agent: new mongoose.Types.ObjectId(agentId) } },
       {
-        $unwind: {
-          path: "$transactions",
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-      {
-        $unwind: {
-          path: "$transactions.products",
-          preserveNullAndEmptyArrays: true,
-        },
+        $unwind: "$products",
       },
       {
         $lookup: {
           from: "ombors",
-          localField: "transactions.products.product",
-          foreignField: "products._id",
-          as: "omborDocs",
+          let: { productId: "$products.product" },
+          pipeline: [
+            { $unwind: "$products" },
+            { $match: { $expr: { $eq: ["$products._id", "$$productId"] } } },
+            { $project: { "products.title": 1 } },
+          ],
+          as: "productDocs",
         },
       },
       {
         $addFields: {
-          "transactions.products.title": {
-            $arrayElemAt: [
-              {
-                $map: {
-                  input: {
-                    $filter: {
-                      input: { $arrayElemAt: ["$omborDocs.products", 0] },
-                      as: "p",
-                      cond: {
-                        $eq: ["$$p._id", "$transactions.products.product"],
-                      },
-                    },
-                  },
-                  as: "pp",
-                  in: "$$pp.title",
-                },
-              },
-              0,
-            ],
+          "products.title": {
+            $arrayElemAt: ["$productDocs.products.title", 0],
           },
         },
       },
       {
         $group: {
           _id: "$_id",
-          fullname: { $first: "$fullname" },
-          phone: { $first: "$phone" },
-          login: { $first: "$login" },
-          initialDebt: { $first: "$initialDebt" },
-          totalRemainingDebt: { $first: "$totalRemainingDebt" },
-          totalDebt: { $first: "$totalDebt" },
-          transactions: { $push: "$transactions" },
+          agent: { $first: "$agent" },
+          products: { $push: "$products" },
+          paidAmount: { $first: "$paidAmount" },
+          remainingDebt: { $first: "$remainingDebt" },
+          date: { $first: "$date" },
         },
       },
     ]);
-
-    if (!debtors.length) {
-      return response.notFound(res, "Qarzdorlar topilmadi");
-    }
-
-    return response.success(res, "Qarzdorlar ro‘yxati", debtors);
+    return response.success(res, "Agent qarzi", transactions);
   } catch (error) {
     return response.serverError(res, "Server xatosi", error.message);
   }

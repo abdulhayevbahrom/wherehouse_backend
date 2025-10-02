@@ -56,6 +56,7 @@ router.post("/transaction/give", transactionController.giveProductsToAgent);
 router.post("/transaction/pay", transactionController.payDebt);
 router.get("/transaction/all", transactionController.getAllTransactions);
 router.get("/debtors", transactionController.getDebtors);
+router.get("/agent/debts/:agentId", transactionController.getAgentDebts);
 // SUPPLIERS
 
 router.get("/supplier/all", SupplierController.getAll);

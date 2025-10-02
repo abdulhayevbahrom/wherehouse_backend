@@ -1,7 +1,139 @@
+// const moment = require("moment");
+// const Expense = require("../model/expenseModel");
+// const Sale = require("../model/transactionModel");
+// const Ombor = require("../model/omborModel");
+// const response = require("../utils/response");
+// const Supplier = require("../model/supplierModel");
+// const Agents = require("../model/agentModel");
+
+// exports.getDashboard = async (req, res) => {
+//   try {
+//     const { month } = req.query;
+//     const start = moment(month, "YYYY-MM").startOf("month").toDate();
+//     const end = moment(month, "YYYY-MM").endOf("month").toDate();
+
+//     // Harajatlar summasi
+//     const expenses = await Expense.aggregate([
+//       {
+//         $match: {
+//           createdAt: { $gte: start, $lte: end },
+//         },
+//       },
+//       {
+//         $group: {
+//           _id: "$type", // kirim va chiqim bo‘yicha guruhlash
+//           total: { $sum: "$amount" },
+//         },
+//       },
+//     ]);
+
+//     const sales = await Sale.aggregate([
+//       {
+//         $match: {
+//           date: { $gte: start, $lte: end },
+//         },
+//       },
+//       {
+//         $unwind: "$products",
+//       },
+//       {
+//         $group: {
+//           _id: null,
+//           totalSales: { $sum: "$products.totalPrice" }, // jami sotuv summasi
+//           totalQuantity: { $sum: "$products.quantity" }, // jami sotilgan dona
+//         },
+//       },
+//     ]);
+
+//     // Qarz summasi (joriy oy uchun)
+//     const debts = await Ombor.aggregate([
+//       {
+//         $match: {
+//           createdAt: { $gte: start, $lte: end }, // sanani createdAt bo‘yicha filterlash
+//           debtAmount: { $gt: 0 }, // faqat qarzi borlarini olish
+//         },
+//       },
+//       {
+//         $group: {
+//           _id: null,
+//           totalDebt: { $sum: "$debtAmount" }, // jami qarz summasi
+//         },
+//       },
+//     ]);
+
+//     // Jami agentlar qarzi (oy bo‘yicha emas, umumiy)
+//     const agentsDebt = await Sale.aggregate([
+//       {
+//         $group: {
+//           _id: null,
+//           totalAgentDebt: { $sum: "$remainingDebt" }, // barcha transactionlar qarzini qo‘shish
+//         },
+//       },
+//     ]);
+
+//     // Jami ombor summasi
+//     const totalStockValue = await Ombor.aggregate([
+//       { $unwind: "$products" },
+//       {
+//         $group: {
+//           _id: null,
+//           totalValue: {
+//             $sum: { $multiply: ["$products.quantity", "$products.price"] },
+//           },
+//         },
+//       },
+//     ]);
+
+//     const agentsInitialDebts = await Agents.aggregate([
+//       {
+//         $group: {
+//           _id: null,
+//           total: { $sum: "$initialDebt" }, // barcha transactionlar qarzini qo‘shish
+//         },
+//       },
+//     ]);
+
+//     const suppliersInitialDebts = await Supplier.aggregate([
+//       {
+//         $group: {
+//           _id: null,
+//           total: { $sum: "$initialDebt" }, // barcha transactionlar qarzini qo‘shish
+//         },
+//       },
+//     ]);
+
+//     const kirim = expenses.find((e) => e._id === "kirim")?.total || 0;
+//     const chiqim = expenses.find((e) => e._id === "chiqim")?.total || 0;
+
+//     let agetsTotalDebt = agentsInitialDebts[0]?.total || 0;
+//     let supplierTotalDebt = suppliersInitialDebts[0]?.total || 0;
+
+//     console.log(agetsTotalDebt, debts[0]?.totalDebt);
+
+//     let datas = {
+//       expenses: {
+//         kirim,
+//         chiqim,
+//       },
+//       sales: {
+//         totalSales: sales[0]?.totalSales || 0,
+//         totalQuantity: sales[0]?.totalQuantity || 0,
+//       },
+//       debts: supplierTotalDebt + debts[0]?.totalDebt || 0,
+//       agentsDebt: agetsTotalDebt + agentsDebt[0]?.totalAgentDebt || 0,
+//       totalStockValue: totalStockValue[0]?.totalValue || 0,
+//     };
+
+//     response.success(res, "Ma'lumotlar muvaffaqiyatli olindi", datas);
+//   } catch (err) {
+//     response.serverError(res, err.message, err);
+//   }
+// };
+
 const moment = require("moment");
 const Expense = require("../model/expenseModel");
-const Sale = require("../model/transactionModel");
-const Ombor = require("../model/omborModel");
+const Transaction = require("../model/transactionModel"); // agentlar uchun
+const Ombor = require("../model/omborModel"); // supplier uchun
 const response = require("../utils/response");
 const Supplier = require("../model/supplierModel");
 const Agents = require("../model/agentModel");
@@ -21,57 +153,66 @@ exports.getDashboard = async (req, res) => {
       },
       {
         $group: {
-          _id: "$type", // kirim va chiqim bo‘yicha guruhlash
+          _id: "$type",
           total: { $sum: "$amount" },
         },
       },
     ]);
 
-    const sales = await Sale.aggregate([
+    // Sotuvlar summasi
+    const sales = await Transaction.aggregate([
       {
         $match: {
           date: { $gte: start, $lte: end },
         },
       },
-      {
-        $unwind: "$products",
-      },
+      { $unwind: "$products" },
       {
         $group: {
           _id: null,
-          totalSales: { $sum: "$products.totalPrice" }, // jami sotuv summasi
-          totalQuantity: { $sum: "$products.quantity" }, // jami sotilgan dona
+          totalSales: { $sum: "$products.totalPrice" },
+          totalQuantity: { $sum: "$products.quantity" },
         },
       },
     ]);
 
-    // Qarz summasi (joriy oy uchun)
-    const debts = await Ombor.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: start, $lte: end }, // sanani createdAt bo‘yicha filterlash
-          debtAmount: { $gt: 0 }, // faqat qarzi borlarini olish
-        },
-      },
+    // ❗ Supplier qarzlarini hisoblash
+    const suppliers = await Supplier.find().lean();
+    let totalSupplierDebt = 0;
+
+    for (let sup of suppliers) {
+      const totalPayments =
+        sup.payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
+
+      const ombor = await Ombor.find({ supplier: sup._id }).lean();
+      const totalProductsPrice = ombor.reduce(
+        (sum, o) => sum + (o.totalPrice || 0),
+        0
+      );
+
+      const debt = sup.initialDebt + totalProductsPrice - totalPayments;
+      if (debt > 0) totalSupplierDebt += debt;
+    }
+
+    // Agent qarzlari
+    const agentsDebtAgg = await Transaction.aggregate([
       {
         $group: {
           _id: null,
-          totalDebt: { $sum: "$debtAmount" }, // jami qarz summasi
+          totalAgentDebt: { $sum: "$remainingDebt" },
         },
       },
     ]);
 
-    // Jami agentlar qarzi (oy bo‘yicha emas, umumiy)
-    const agentsDebt = await Sale.aggregate([
+    const agentsInitialDebts = await Agents.aggregate([
       {
         $group: {
           _id: null,
-          totalAgentDebt: { $sum: "$remainingDebt" }, // barcha transactionlar qarzini qo‘shish
+          total: { $sum: "$initialDebt" },
         },
       },
     ]);
 
-    // Jami ombor summasi
     const totalStockValue = await Ombor.aggregate([
       { $unwind: "$products" },
       {
@@ -84,43 +225,21 @@ exports.getDashboard = async (req, res) => {
       },
     ]);
 
-    const agentsInitialDebts = await Agents.aggregate([
-      {
-        $group: {
-          _id: null,
-          total: { $sum: "$initialDebt" }, // barcha transactionlar qarzini qo‘shish
-        },
-      },
-    ]);
-
-    const suppliersInitialDebts = await Supplier.aggregate([
-      {
-        $group: {
-          _id: null,
-          total: { $sum: "$initialDebt" }, // barcha transactionlar qarzini qo‘shish
-        },
-      },
-    ]);
-
     const kirim = expenses.find((e) => e._id === "kirim")?.total || 0;
     const chiqim = expenses.find((e) => e._id === "chiqim")?.total || 0;
 
-    let agetsTotalDebt = agentsInitialDebts[0]?.total || 0;
-    let supplierTotalDebt = suppliersInitialDebts[0]?.total || 0;
-
-    console.log(agetsTotalDebt);
+    let agetsTotalDebt =
+      (agentsInitialDebts[0]?.total || 0) +
+      (agentsDebtAgg[0]?.totalAgentDebt || 0);
 
     let datas = {
-      expenses: {
-        kirim,
-        chiqim,
-      },
+      expenses: { kirim, chiqim },
       sales: {
         totalSales: sales[0]?.totalSales || 0,
         totalQuantity: sales[0]?.totalQuantity || 0,
       },
-      debts: supplierTotalDebt + debts[0]?.totalDebt || 0,
-      agentsDebt: agetsTotalDebt + agentsDebt[0]?.totalAgentDebt || 0,
+      debts: totalSupplierDebt, // ✅ faqat supplier qarzlarining to‘g‘ri yig‘indisi
+      agentsDebt: agetsTotalDebt,
       totalStockValue: totalStockValue[0]?.totalValue || 0,
     };
 
