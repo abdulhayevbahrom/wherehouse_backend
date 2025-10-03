@@ -4,28 +4,51 @@ const Agent = require("../model/agentModel");
 const response = require("../utils/response");
 const mongoose = require("mongoose");
 
-// Bir nechta mahsulotni agentga berish
 // exports.giveProductsToAgent = async (req, res) => {
 //   try {
 //     const { agentId, products, paidAmount } = req.body;
 
-//     for (const item of products) {
-//       const { productId, quantity, salePrice } = item; // salePrice ham keladi!
+//     if (!agentId || !products || !products.length) {
+//       return res.status(400).json({ error: "Ma'lumotlar yetarli emas" });
+//     }
 
-//       // Ombor ichidagi mahsulotni topish
+//     const agent = await Agent.findById(agentId);
+//     if (!agent) return response.notFound(res, "Agent topilmadi");
+
+//     let totalProductsPrice = 0;
+
+//     for (const item of products) {
+//       const { productId, quantity, salePrice } = item;
+
 //       const ombor = await Ombor.findOne({ "products._id": productId });
+//       if (!ombor) return response.notFound(res, "Omborda mahsulot topilmadi");
 
 //       const productIndex = ombor.products.findIndex(
 //         (p) => p._id.toString() === productId
 //       );
+
+//       if (productIndex === -1)
+//         return response.notFound(res, "Mahsulot topilmadi");
+
 //       const product = ombor.products[productIndex];
+
+//       if (product.quantity < quantity) {
+//         return res
+//           .status(400)
+//           .json({ error: `${product.title} uchun yetarli miqdor yo‘q` });
+//       }
 
 //       product.quantity -= quantity;
 //       ombor.products[productIndex] = product;
 //       await ombor.save();
+
+//       totalProductsPrice += salePrice * quantity;
 //     }
 
-//     let result = await Transaction.create({
+//     const remainingDebt = totalProductsPrice - paidAmount;
+
+//     // 🔥 Faqat transactionda qarz yoziladi
+//     const transaction = await Transaction.create({
 //       agent: agentId,
 //       products: products.map((p) => ({
 //         product: p.productId,
@@ -33,18 +56,25 @@ const mongoose = require("mongoose");
 //         quantity: p.quantity,
 //         totalPrice: p.salePrice * p.quantity,
 //       })),
-//       paidAmount: paidAmount,
-//       remainingDebt:
-//         products.reduce((acc, p) => acc + p.salePrice * p.quantity, 0) -
-//         paidAmount,
+//       paidAmount,
+//       remainingDebt,
 //     });
-//     const transaction = await Transaction.findById(result.id).populate("agent");
 
-//     return response.created(res, "Mahsulotlar agentga berildi", transaction);
+//     const populatedTransaction = await Transaction.findById(transaction._id)
+//       .populate("agent")
+//       .populate("products.product");
+
+//     return response.created(
+//       res,
+//       "Mahsulotlar agentga berildi",
+//       populatedTransaction
+//     );
 //   } catch (error) {
 //     return response.serverError(res, "Server xatosi", error.message);
 //   }
 // };
+
+// Agentning qarzini to'lash
 
 exports.giveProductsToAgent = async (req, res) => {
   try {
@@ -62,34 +92,58 @@ exports.giveProductsToAgent = async (req, res) => {
     for (const item of products) {
       const { productId, quantity, salePrice } = item;
 
-      const ombor = await Ombor.findOne({ "products._id": productId });
-      if (!ombor) return response.notFound(res, "Omborda mahsulot topilmadi");
+      // 🔹 Avval bazaviy productni topamiz
+      const omborDoc = await Ombor.findOne({ "products._id": productId });
+      if (!omborDoc)
+        return response.notFound(res, "Omborda mahsulot topilmadi");
 
-      const productIndex = ombor.products.findIndex(
+      const baseProduct = omborDoc.products.find(
         (p) => p._id.toString() === productId
       );
+      if (!baseProduct) return response.notFound(res, "Mahsulot topilmadi");
 
-      if (productIndex === -1)
-        return response.notFound(res, "Mahsulot topilmadi");
+      let remainingQty = quantity;
 
-      const product = ombor.products[productIndex];
+      // 🔹 Barcha omborlardan shu title + price bo‘yicha mahsulotlarni yig‘amiz
+      const allOmborlar = await Ombor.find({
+        "products.title": new RegExp(`^${baseProduct.title.trim()}$`, "i"),
+        "products.price": baseProduct.price,
+      });
 
-      if (product.quantity < quantity) {
-        return res
-          .status(400)
-          .json({ error: `${product.title} uchun yetarli miqdor yo‘q` });
+      for (const ombor of allOmborlar) {
+        for (let p of ombor.products) {
+          if (
+            p.title.trim().toLowerCase() ===
+              baseProduct.title.trim().toLowerCase() &&
+            p.price === baseProduct.price &&
+            remainingQty > 0
+          ) {
+            if (p.quantity >= remainingQty) {
+              p.quantity -= remainingQty;
+              remainingQty = 0;
+            } else {
+              remainingQty -= p.quantity;
+              p.quantity = 0;
+            }
+          }
+        }
+        await ombor.save(); // har bir omborni alohida saqlaymiz
+        if (remainingQty <= 0) break; // yetarli bo‘lsa to‘xtatamiz
       }
 
-      product.quantity -= quantity;
-      ombor.products[productIndex] = product;
-      await ombor.save();
+      if (remainingQty > 0) {
+        return response.badRequest(
+          res,
+          `${baseProduct.title} yetarli emas, ${remainingQty} dona yetishmadi`
+        );
+      }
 
       totalProductsPrice += salePrice * quantity;
     }
 
     const remainingDebt = totalProductsPrice - paidAmount;
 
-    // 🔥 Faqat transactionda qarz yoziladi
+    // 🔹 Transaction yozib qo‘yamiz
     const transaction = await Transaction.create({
       agent: agentId,
       products: products.map((p) => ({
@@ -116,7 +170,6 @@ exports.giveProductsToAgent = async (req, res) => {
   }
 };
 
-// Agentning qarzini to'lash
 exports.payDebt = async (req, res) => {
   try {
     const { agentId, amount } = req.body;

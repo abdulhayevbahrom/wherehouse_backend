@@ -5,28 +5,76 @@ const Supplier = require("../model/supplierModel");
 class OmborController {
   async getAll(req, res) {
     try {
+      // const products = await Ombor.aggregate([
+      //   {
+      //     $lookup: {
+      //       from: "suppliers",
+      //       localField: "supplier",
+      //       foreignField: "_id",
+      //       as: "supplier",
+      //     },
+      //   },
+      //   { $unwind: "$supplier" },
+      //   { $unwind: { path: "$products", preserveNullAndEmptyArrays: false } }, // product bo‘lsa chiqaradi
+      //   {
+      //     $match: {
+      //       "products.quantity": { $gt: 0 }, // quantity 0 bo‘lmaganlarni oladi
+      //     },
+      //   },
+      //   {
+      //     $project: {
+      //       _id: "$products._id",
+      //       title: "$products.title",
+      //       quantity: "$products.quantity",
+      //       price: "$products.price",
+      //       total: { $multiply: ["$products.quantity", "$products.price"] },
+      //       supplier: "$supplier",
+      //       totalPrice: "$totalPrice",
+      //       paidAmount: "$paidAmount",
+      //       debtAmount: { $subtract: ["$totalPrice", "$paidAmount"] },
+      //     },
+      //   },
+      // ]);
+
       const products = await Ombor.aggregate([
         {
           $lookup: {
-            from: "suppliers", // collection nomi
+            from: "suppliers",
             localField: "supplier",
             foreignField: "_id",
             as: "supplier",
           },
         },
         { $unwind: "$supplier" },
-        { $unwind: "$products" },
+        { $unwind: { path: "$products", preserveNullAndEmptyArrays: false } },
+        {
+          $match: {
+            "products.quantity": { $gt: 0 },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              title: { $trim: { input: "$products.title" } },
+              price: "$products.price",
+              supplier: "$supplier._id",
+            },
+            quantity: { $sum: "$products.quantity" },
+            total: {
+              $sum: { $multiply: ["$products.quantity", "$products.price"] },
+            },
+            supplier: { $first: "$supplier" },
+            productId: { $first: "$products._id" }, // faqat 1 ta mahsulot id oladi
+          },
+        },
         {
           $project: {
-            _id: "$products._id",
-            title: "$products.title",
-            quantity: "$products.quantity",
-            price: "$products.price",
-            total: { $multiply: ["$products.quantity", "$products.price"] },
-            supplier: "$supplier",
-            totalPrice: "$totalPrice",
-            paidAmount: "$paidAmount",
-            debtAmount: { $subtract: ["$totalPrice", "$paidAmount"] },
+            _id: "$productId",
+            title: "$_id.title",
+            price: "$_id.price",
+            quantity: 1,
+            total: 1,
+            supplier: 1,
           },
         },
       ]);
