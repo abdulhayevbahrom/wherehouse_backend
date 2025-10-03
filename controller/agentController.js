@@ -101,7 +101,7 @@ class AgentController {
   //     let matchStage = { agent: new mongoose.Types.ObjectId(id) };
 
   //     if (date) {
-  //       // format: YYYY-MM-DD
+  //       // format: DD-MM-YYYY
   //       const start = moment
   //         .tz(date, "DD-MM-YYYY", "Asia/Tashkent")
   //         .startOf("day")
@@ -159,11 +159,25 @@ class AgentController {
   //       },
   //     ]);
 
-  //     return responses.success(res, "Agent ma'lumotlari", agentData);
+  //     // ✅ Agent umumiy qarzini hisoblash
+  //     const totalRemainingDebt = agentData.reduce(
+  //       (sum, tr) => sum + (tr.remainingDebt || 0),
+  //       0
+  //     );
+
+  //     const totalDebt = agent.initialDebt + totalRemainingDebt;
+
+  //     return responses.success(res, "Agent ma'lumotlari", {
+  //       agent,
+  //       sales: agentData,
+  //       totalRemainingDebt,
+  //       totalDebt, // initialDebt + remainingDebt
+  //     });
   //   } catch (err) {
   //     responses.serverError(res, "Server xatosi", err.message);
   //   }
   // }
+
   async getAgentData(req, res) {
     try {
       let { id } = req.params;
@@ -172,10 +186,18 @@ class AgentController {
       let agent = await Agent.findById(id);
       if (!agent) return responses.notFound(res, "Agent topilmadi");
 
+      // ✅ 1) Har doim umumiy qarzni hisoblash (butun transactionlardan)
+      const allTransactions = await Transactions.find({ agent: id });
+      const allRemainingDebt = allTransactions.reduce(
+        (sum, tr) => sum + (tr.remainingDebt || 0),
+        0
+      );
+      const totalDebt = agent.initialDebt + allRemainingDebt;
+
+      // ✅ 2) Faqat sana bo‘yicha filterlangan ma’lumotlarni olish
       let matchStage = { agent: new mongoose.Types.ObjectId(id) };
 
       if (date) {
-        // format: DD-MM-YYYY
         const start = moment
           .tz(date, "DD-MM-YYYY", "Asia/Tashkent")
           .startOf("day")
@@ -233,19 +255,17 @@ class AgentController {
         },
       ]);
 
-      // ✅ Agent umumiy qarzini hisoblash
+      // ✅ Faqat sana bo‘yicha qoldiq qarz
       const totalRemainingDebt = agentData.reduce(
         (sum, tr) => sum + (tr.remainingDebt || 0),
         0
       );
 
-      const totalDebt = agent.initialDebt + totalRemainingDebt;
-
       return responses.success(res, "Agent ma'lumotlari", {
         agent,
         sales: agentData,
-        totalRemainingDebt,
-        totalDebt, // initialDebt + remainingDebt
+        totalRemainingDebt, // sana bo‘yicha
+        totalDebt, // doimiy umumiy qarz
       });
     } catch (err) {
       responses.serverError(res, "Server xatosi", err.message);
