@@ -188,7 +188,7 @@ class OmborController {
       const { amount } = req.body;
 
       if (!amount || amount <= 0) {
-        return response.badRequest(res, "To'lov summasi noto'g'ri");
+        return response.error(res, "To'lov summasi noto'g'ri");
       }
 
       // Supplierni olish
@@ -201,7 +201,7 @@ class OmborController {
 
       // Ombordagi qarzdan ko‘p to‘lab bo‘lmaydi
       if (amount > ombor.debtAmount) {
-        return response.badRequest(res, "Qarzdan ko'p to'lash mumkin emas");
+        return response.error(res, "Qarzdan ko'p to'lash mumkin emas");
       }
 
       // Omborni yangilash

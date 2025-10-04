@@ -92,7 +92,7 @@ exports.giveProductsToAgent = async (req, res) => {
     for (const item of products) {
       const { productId, quantity, salePrice } = item;
 
-      // 🔹 Avval bazaviy productni topamiz
+      // 🔹 Bazaviy productni topamiz
       const omborDoc = await Ombor.findOne({ "products._id": productId });
       if (!omborDoc)
         return response.notFound(res, "Omborda mahsulot topilmadi");
@@ -102,37 +102,44 @@ exports.giveProductsToAgent = async (req, res) => {
       );
       if (!baseProduct) return response.notFound(res, "Mahsulot topilmadi");
 
+
       let remainingQty = quantity;
 
-      // 🔹 Barcha omborlardan shu title + price bo‘yicha mahsulotlarni yig‘amiz
-      const allOmborlar = await Ombor.find({
-        "products.title": new RegExp(`^${baseProduct.title.trim()}$`, "i"),
-        "products.price": baseProduct.price,
-      });
+      // 🔹 Barcha omborlarni topamiz
+      const allOmborlar = await Ombor.find();
 
       for (const ombor of allOmborlar) {
+        if (remainingQty <= 0) break; // Yetarli bo'lsa to'xtatamiz
+
         for (let p of ombor.products) {
+          // Aynan shu mahsulotni topamiz (title va price bir xil bo'lishi kerak)
           if (
             p.title.trim().toLowerCase() ===
               baseProduct.title.trim().toLowerCase() &&
             p.price === baseProduct.price &&
+            p.quantity > 0 &&
             remainingQty > 0
           ) {
-            if (p.quantity >= remainingQty) {
-              p.quantity -= remainingQty;
-              remainingQty = 0;
-            } else {
-              remainingQty -= p.quantity;
-              p.quantity = 0;
-            }
+            // Qancha olish mumkinligini hisoblaymiz
+            const takeQty = Math.min(p.quantity, remainingQty);
+
+           
+
+            // Ombordan kamaytiramiz
+            p.quantity -= takeQty;
+            remainingQty -= takeQty;
+
+           
           }
         }
-        await ombor.save(); // har bir omborni alohida saqlaymiz
-        if (remainingQty <= 0) break; // yetarli bo‘lsa to‘xtatamiz
+
+        // Har bir omborni saqlaymiz
+        await ombor.save();
       }
 
+      // Agar hali ham yetmasa
       if (remainingQty > 0) {
-        return response.badRequest(
+        return response.error(
           res,
           `${baseProduct.title} yetarli emas, ${remainingQty} dona yetishmadi`
         );
@@ -143,7 +150,7 @@ exports.giveProductsToAgent = async (req, res) => {
 
     const remainingDebt = totalProductsPrice - paidAmount;
 
-    // 🔹 Transaction yozib qo‘yamiz
+    // 🔹 Transaction yaratamiz
     const transaction = await Transaction.create({
       agent: agentId,
       products: products.map((p) => ({
