@@ -143,6 +143,7 @@ class SupplierController {
             totalProductsPrice,
             debt,
             initialDebt: sup.initialDebt,
+            payments: sup.payments || [],
           });
         }
       }
