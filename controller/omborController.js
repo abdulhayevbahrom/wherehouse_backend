@@ -148,6 +148,12 @@ class OmborController {
 
       // Supplier balansini yangilash
       supplierDoc.balance += paidAmount - totalPrice;
+
+      supplierDoc.payments.push({
+        amount: paidAmount,
+        date: new Date(),
+      });
+
       await supplierDoc.save();
 
       return response.created(res, "Mahsulot muvaffaqiyatli qo'shildi", ombor);

@@ -130,6 +130,11 @@ class SupplierController {
           0
         );
 
+        let paidAmounts = ombor.reduce(
+          (sum, o) => sum + (o.paidAmount || 0),
+          0
+        );
+
         // qarz hisoblash
         const debt = sup.initialDebt + totalProductsPrice - totalPayments;
 
@@ -141,7 +146,7 @@ class SupplierController {
             phone: sup.phone,
             totalPayments,
             totalProductsPrice,
-            debt,
+            debt: debt,
             initialDebt: sup.initialDebt,
             payments: sup.payments || [],
           });
